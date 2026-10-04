@@ -5,11 +5,24 @@ import threading
 import os
 import random
 import json
+import shutil
 from neonize.utils import build_jid
 from neonize.utils.enum import ParticipantChange
 
-first_time = not os.path.exists("bot.sqlite3")   # check BEFORE making client
-client = NewClient("bot.sqlite3")
+DATA_DIR = os.environ.get("RAILWAY_VOLUME_MOUNT_PATH", ".")
+DB_FILE = os.path.join(DATA_DIR, "db.json")
+SESSION_FILE = os.path.join(DATA_DIR, "bot.sqlite3")
+
+# first run on the volume: create the leaderboard file
+if not os.path.exists(DB_FILE):
+    if os.path.exists("db.json"):
+        shutil.copy("db.json", DB_FILE)
+    else:
+        with open(DB_FILE, "w") as f:
+            json.dump({"leaderboard": []}, f)
+
+first_time = not os.path.exists(SESSION_FILE)   # check BEFORE making client
+client = NewClient(SESSION_FILE)
 PHONE = "2347075635330"
 
 @client.event(ConnectedEv)
