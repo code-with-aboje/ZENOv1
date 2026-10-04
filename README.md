@@ -1,4 +1,4 @@
-![Typing SVG](https://readme-typing-svg.demolab.com/?lines=BlueyVerse+Bot;WhatsApp+Automation;Built+with+Python)
+![Typing SVG](https://readme-typing-svg.demolab.com/?lines=Bluey's+Bot;WhatsApp+Automation;Built+with+Python)
 
 # 🤖 ZENO Bot
 
