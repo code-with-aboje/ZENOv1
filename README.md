@@ -1,6 +1,6 @@
 ![Typing SVG](https://readme-typing-svg.demolab.com/?lines=BlueyVerse+Bot;WhatsApp+Automation;Built+with+Python)
 
-# 🤖 BlueyVerse Bot
+# 🤖 ZENO Bot
 
 WhatsApp bot for BlueyVerse Academy — games, leaderboard & group admin tools, built with Python + Neonize
 
