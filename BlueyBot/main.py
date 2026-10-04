@@ -178,7 +178,7 @@ def time_up(client, event, chat, player):
     next_turn(client, event, chat)
 
 def round_seconds(round_num):
-    return max(5, 18 - round_num * 3) 
+    return max(10, 45 - round_num * 5) 
 
 def next_turn(client, event, chat):
     game = games[chat]
@@ -210,13 +210,13 @@ def check_answer(client, event, chat, text):
             winner = player
             client.send_message(chat_jid, f"🏆 @{winner} wins! +10 points", mentions_are_lids=True)
 
-            with open("db.json", "r") as f:
+            with open(DB_FILE, "r") as f:
                 data = json.load(f)
             for p in data["leaderboard"]:
                 if p["id"] == winner:
                     p["points"] += 10
                     break
-            with open("db.json", "w") as f:
+            with open(DB_FILE, "w") as f:
                 json.dump(data, f, indent=2)
 
             del games[chat]
@@ -366,7 +366,7 @@ rank_order = [mythic, elite, veteran, pro, red, script, rookie, noob]
 
 def leaderboard(client, event):
     chat_jid = event.Info.MessageSource.Chat
-    with open("db.json") as f:
+    with open(DB_FILE) as f:
         data = json.load(f)
 
     message = "*🛡️ ══ LEADERBOARD ══ 🛡️*\n\n"
@@ -396,7 +396,7 @@ def add_leaderboard(client, event):
         return
     user_id = mentioned[0].split("@")[0]
     #opening DATABASE
-    with open("db.json", "r") as f:
+    with open(DB_FILE, "r") as f:
         data = json.load(f)
 
     #loop through database 
@@ -406,7 +406,7 @@ def add_leaderboard(client, event):
             return
     data["leaderboard"].append({"id": user_id, "points": 0 , "rank":  noob})
 
-    with open("db.json", "w") as f:
+    with open(DB_FILE, "w") as f:
         #update DB
         json.dump(data, f, indent=2)
     client.reply_message("*Added to Leaderboard✅*", event)
@@ -433,7 +433,7 @@ def add_point(client, event, text):
         return
 
     #open db 
-    with open("db.json","r") as f:
+    with open(DB_FILE,"r") as f:
         data = json.load(f)
         for p in data["leaderboard"]:
             if p["id"] == user_id:
@@ -444,11 +444,11 @@ def add_point(client, event, text):
             client.reply_message("*❌ Not on the leaderboard. Use !add first.*", event)
             return
     #write to file
-    with open("db.json", "w") as f:
+    with open(DB_FILE, "w") as f:
         json.dump(data, f, indent=2)
     client.reply_message(f"*{points} Points Added!✅*", event)
     #upgrade tier
-    with open("db.json","r") as f:
+    with open(DB_FILE,"r") as f:
         data = json.load(f)
         for p in data["leaderboard"]:
             if p["id"] == user_id:
@@ -477,7 +477,7 @@ def add_point(client, event, text):
                     client.send_message(chat_jid, f"🎉 *RANK UP!* @{user_id} is now *{new_rank}* 🔥", mentions_are_lids=True)
                 break
 
-    with open("db.json", "w") as f:
+    with open(DB_FILE, "w") as f:
         json.dump(data, f ,indent=2)
     #leaderboard(client, event)
 
