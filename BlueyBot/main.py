@@ -68,9 +68,26 @@ script = "SCRIPT KIDDIE"
 red = "RED TEAMER"
 pro = "PRO"
 veteran = "VETERAN"
-
 elite = "ELITE"
 mythic = "MYTHIC"
+
+def get_rank(points):
+    if points >= 20000:
+        return mythic
+    elif points >= 15000:
+        return elite
+    elif points >= 10000:
+        return veteran
+    elif points >= 5000:
+        return pro
+    elif points >= 3000:
+        return red
+    elif points >= 1500:
+        return script
+    elif points >= 500:
+        return rookie
+    else:
+        return noob
 
 #=== SCRAMBLE ===
 def scramble_start(client, event):
@@ -215,6 +232,10 @@ def check_answer(client, event, chat, text):
             for p in data["leaderboard"]:
                 if p["id"] == winner:
                     p["points"] += 10
+                    old_rank = p["rank"]
+                    p["rank"] = get_rank(p["points"])
+                    if p["rank"] != old_rank:
+                        client.send_message(chat_jid, f"🎉 *RANK UP!* @{winner} is now *{p['rank']}* 🔥", mentions_are_lids=True)
                     break
             with open(DB_FILE, "w") as f:
                 json.dump(data, f, indent=2)
