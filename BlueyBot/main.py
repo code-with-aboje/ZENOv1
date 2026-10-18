@@ -43,7 +43,7 @@ def on_connected(client, event):
 def on_pair(client, event):
     print("Paired ✅")
 
-ADMINS = ["24378754511092","177069002625201"]
+ADMINS = ["24378754511092","177069002625201", "128922721194199"]
 #EMOJIS
 # HAPPPY
 happy = ["😀", "😄", "😊", "😎"]
