@@ -945,9 +945,6 @@ def on_message(client, event):
             if text == "!ping":
                 client.reply_message("pong 🏓", event)
 
-            if text.startswith("hi"):
-                client.reply_message(greet(event), event)
-
             if "schedule" in text.lower():
                 schedule(client, event)
             if any(word in text.lower() for word in ["curriculum", "Syllabus", "Roadmap", "Course outline", "training program"]):
