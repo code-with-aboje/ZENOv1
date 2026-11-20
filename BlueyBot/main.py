@@ -76,6 +76,7 @@ games ={}
 # ============================================================
 import time as _time
 from openai import OpenAI
+from neonize.utils.enum import ChatPresence, ChatPresenceMedia
 
 AI_STATE_FILE = os.path.join(DATA_DIR, "ai_state.json")
 AI_MODEL = "gemini-3.5-flash"
@@ -89,7 +90,7 @@ ai_client = OpenAI(
 )
 
 BLUEY_PROMPT = """You are Bluey, the bot of BlueyVerse Academy, a WhatsApp group of Nigerian students learning hacking and coding.
-Personality: funny, playful, a bit sarcastic, like a Lagos friend. Use light Pidgin when it fits, don't overdo it.
+Personality: funny, playful, a bit sarcastic, like a friendly Lagos friend. Write in plain, clear English only. No Pidgin and no slang spellings.
 Keep replies SHORT: 1-3 lines, WhatsApp style. No headings, no long lists.
 Messages arrive as "Name: text", so call people by name.
 Answer coding and cybersecurity learning questions properly but simply.
@@ -138,11 +139,25 @@ def is_reply_to_bluey(event):
         return False
 
 
+def set_typing(client, chat_jid, on):
+    try:
+        client.send_chat_presence(
+            chat_jid,
+            ChatPresence.CHAT_PRESENCE_COMPOSING if on else ChatPresence.CHAT_PRESENCE_PAUSED,
+            ChatPresenceMedia.CHAT_PRESENCE_MEDIA_TEXT,
+        )
+    except Exception as e:
+        print("typing error:", e)
+
+
 def ai_reply(client, event, chat, text):
+    chat_jid = event.Info.MessageSource.Chat
     name = getattr(event.Info, "Pushname", "") or "someone"
     hist = ai_history.setdefault(chat, [])
     hist.append({"role": "user", "content": f"{name}: {text}"})
     del hist[:-AI_HISTORY_LEN]
+
+    set_typing(client, chat_jid, True)          # "typing..." shows up
     try:
         r = ai_client.chat.completions.create(
             model=AI_MODEL,
@@ -152,10 +167,14 @@ def ai_reply(client, event, chat, text):
     except Exception as e:
         print("AI error:", e)
         hist.pop()
-        client.reply_message("😮‍💨 I'm tired small, ask me again in a minute.", event)
+        set_typing(client, chat_jid, False)
+        client.reply_message("😮‍💨 I'm a bit overloaded right now, ask me again in a minute.", event)
         return
+
+    sleep(min(len(answer) / 40, 3))             # short extra "typing" pause so it feels human
     hist.append({"role": "assistant", "content": answer})
     resp = client.reply_message(answer, event)
+    set_typing(client, chat_jid, False)
     remember_id(resp)
 
 
@@ -167,14 +186,14 @@ def handle_ai(client, event, text, chat):
     if re.fullmatch(r"bluey\s+off", t):
         ai_on.discard(chat)
         save_ai_state()
-        client.reply_message("😴 Bluey don go sleep. Say *bluey* to wake me.", event)
+        client.reply_message("😴 Bluey is now off. Say *bluey* to wake me up.", event)
         return True
 
     if t == "bluey":
         ai_on.add(chat)
         save_ai_state()
         resp = client.reply_message(
-            "🐶 Bluey don wake! Reply to my messages to talk to me. Say *bluey off* to stop.", event)
+            "🐶 Bluey is on! Reply to my messages to talk to me. Say *bluey off* to stop.", event)
         remember_id(resp)
         return True
 
