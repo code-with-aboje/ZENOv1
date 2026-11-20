@@ -71,6 +71,135 @@ words = [
 #===== GAME STORAGE ======
 games ={}
 
+# ============================================================
+# BLUEY AI MODE  (paste this whole block just ABOVE "#=== RANKS ====")
+# ============================================================
+import time as _time
+from openai import OpenAI
+
+AI_STATE_FILE = os.path.join(DATA_DIR, "ai_state.json")
+AI_MODEL = "gemini-2.5-flash"
+AI_COOLDOWN = 3          # seconds between AI replies per user
+AI_HISTORY_LEN = 12      # messages remembered per chat
+AI_MAX_IDS = 300         # how many bot message ids to remember
+
+ai_client = OpenAI(
+    base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+    api_key=os.environ.get("GEMINI_API_KEY", ""),
+)
+
+BLUEY_PROMPT = """You are Bluey, the bot of BlueyVerse Academy, a WhatsApp group of Nigerian students learning hacking and coding.
+Personality: funny, playful, a bit sarcastic, like a Lagos friend. Use light Pidgin when it fits, don't overdo it.
+Keep replies SHORT: 1-3 lines, WhatsApp style. No headings, no long lists.
+Messages arrive as "Name: text", so call people by name.
+Answer coding and cybersecurity learning questions properly but simply.
+Academy golden rule: only hack what you own or have permission to test. If someone wants help attacking other people's accounts, phones or systems, joke it off and refuse.
+Never insult anyone's family, tribe, religion or looks."""
+
+ai_on = set()        # chat ids where AI mode is on
+ai_ids = []          # ids of messages Bluey sent (so we know what counts as "a reply to Bluey")
+ai_history = {}      # chat -> recent messages
+ai_last_used = {}    # sender -> last time
+
+
+def load_ai_state():
+    try:
+        with open(AI_STATE_FILE) as f:
+            data = json.load(f)
+        ai_on.update(data.get("on", []))
+        ai_ids.extend(data.get("ids", []))
+    except Exception:
+        pass
+
+
+def save_ai_state():
+    try:
+        with open(AI_STATE_FILE, "w") as f:
+            json.dump({"on": list(ai_on), "ids": ai_ids[-AI_MAX_IDS:]}, f)
+    except Exception as e:
+        print("save_ai_state error:", e)
+
+
+def remember_id(resp):
+    msg_id = getattr(resp, "ID", None)
+    if msg_id:
+        ai_ids.append(msg_id)
+        del ai_ids[:-AI_MAX_IDS]
+        save_ai_state()
+    else:
+        print("Could not read message id from:", resp)
+
+
+def is_reply_to_bluey(event):
+    try:
+        ctx = event.Message.extendedTextMessage.contextInfo
+        return bool(ctx.stanzaID) and ctx.stanzaID in ai_ids
+    except Exception:
+        return False
+
+
+def ai_reply(client, event, chat, text):
+    name = getattr(event.Info, "Pushname", "") or "someone"
+    hist = ai_history.setdefault(chat, [])
+    hist.append({"role": "user", "content": f"{name}: {text}"})
+    del hist[:-AI_HISTORY_LEN]
+    try:
+        r = ai_client.chat.completions.create(
+            model=AI_MODEL,
+            messages=[{"role": "system", "content": BLUEY_PROMPT}] + hist,
+        )
+        answer = (r.choices[0].message.content or "").strip() or "..."
+    except Exception as e:
+        print("AI error:", e)
+        hist.pop()
+        client.reply_message("😮‍💨 I'm tired small, ask me again in a minute.", event)
+        return
+    hist.append({"role": "assistant", "content": answer})
+    resp = client.reply_message(answer, event)
+    remember_id(resp)
+
+
+def handle_ai(client, event, text, chat):
+    """Returns True if the message was consumed by AI mode."""
+    t = text.strip().lower()
+
+    # "bluey off" must be checked BEFORE "bluey"
+    if re.fullmatch(r"bluey\s+off", t):
+        ai_on.discard(chat)
+        save_ai_state()
+        client.reply_message("😴 Bluey don go sleep. Say *bluey* to wake me.", event)
+        return True
+
+    if t == "bluey":
+        ai_on.add(chat)
+        save_ai_state()
+        resp = client.reply_message(
+            "🐶 Bluey don wake! Reply to my messages to talk to me. Say *bluey off* to stop.", event)
+        remember_id(resp)
+        return True
+
+    # normal messages: only react in AI mode, outside games, to replies to Bluey
+    if chat not in ai_on or chat in games:
+        return False
+    if not t or link_pattern.search(text):
+        return False          # links fall through to your anti-link code
+    if not is_reply_to_bluey(event):
+        return False
+
+    sender = event.Info.MessageSource.Sender.User
+    now = _time.time()
+    if now - ai_last_used.get(sender, 0) < AI_COOLDOWN:
+        return True           # swallow it, but don't call the AI
+    ai_last_used[sender] = now
+
+    threading.Thread(target=ai_reply, args=(client, event, chat, text), daemon=True).start()
+    return True
+
+
+load_ai_state()
+# ============================================================
+# END BLUEY AI MODE
+# ============================================================
 #=== RANKS ====
 noob = "NOOB"
 rookie = "ROOKIE"
@@ -767,6 +896,8 @@ def on_message(client, event):
             or event.Message.extendedTextMessage.text or "")
     print(repr(text))
     chat = event.Info.MessageSource.Chat.User
+    if handle_ai(client, event, text, chat):
+        return
     if chat in games and games[chat]["state"] == "playing":
         check_answer(client, event, chat, text)
     match text:
