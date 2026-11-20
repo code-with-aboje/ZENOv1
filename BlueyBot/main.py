@@ -78,7 +78,7 @@ import time as _time
 from openai import OpenAI
 
 AI_STATE_FILE = os.path.join(DATA_DIR, "ai_state.json")
-AI_MODEL = "gemini-2.5-flash"
+AI_MODEL = "gemini-3.5-flash"
 AI_COOLDOWN = 3          # seconds between AI replies per user
 AI_HISTORY_LEN = 12      # messages remembered per chat
 AI_MAX_IDS = 300         # how many bot message ids to remember
