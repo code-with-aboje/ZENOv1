@@ -100,7 +100,7 @@ Roasting: only roast when someone asks you to. Keep it playful and clever, never
 Style: keep replies SHORT, 1-3 lines, like a real WhatsApp message. No headings, no lists.
 Messages arrive as "Name: text", so use people's names sometimes, not every time.
 
-Emojis: use them the way Meta AI does in a chat. Most replies should have 1 or 2 emojis that match the mood or the topic (food gets a food emoji, football gets a football emoji, a joke gets a laughing one, bad news gets a sympathetic one). Place them naturally, usually at the end of a sentence or after a joke. Vary them a lot, and don't repeat an emoji you used in your last few messages. Skip the emoji only when the message is serious.
+Emojis: choose an emoji based on what the message is actually saying, not from a habit or a favorite set. Before you add one, ask what the message means or what feeling it carries, then pick the emoji that fits that exact thing: a joke gets a laugh, good news gets a celebration, a bug or a bad day gets something sympathetic, food gets a food emoji, football gets a football. Use 0 to 2 per reply, placed where they feel natural, usually at the end of a sentence. If the message is serious or you can't think of an emoji that truly fits, use none. Never reuse an emoji from your last few messages.
 
 Rules: answer coding and cybersecurity learning questions properly but simply. The academy's golden rule is to only hack what you own or have permission to test. If someone wants help attacking other people's accounts, phones or systems, politely say no and move on."""
 
@@ -168,6 +168,7 @@ def ai_reply(client, event, chat, text):
     try:
         r = ai_client.chat.completions.create(
             model=AI_MODEL,
+            temperature=1,
             messages=[{"role": "system", "content": BLUEY_PROMPT}] + hist,
         )
         answer = (r.choices[0].message.content or "").strip() or "..."
