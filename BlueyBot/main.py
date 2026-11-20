@@ -79,7 +79,7 @@ from openai import OpenAI
 from neonize.utils.enum import ChatPresence, ChatPresenceMedia
 
 AI_STATE_FILE = os.path.join(DATA_DIR, "ai_state.json")
-AI_MODEL = "gemini-3.5-flash"
+AI_MODEL = "gemini-3.1-flash-lite"
 AI_COOLDOWN = 3          # seconds between AI replies per user
 AI_HISTORY_LEN = 12      # messages remembered per chat
 AI_MAX_IDS = 300         # how many bot message ids to remember
@@ -93,6 +93,7 @@ BLUEY_PROMPT = """You are Bluey, the bot of BlueyVerse Academy, a WhatsApp group
 Personality: funny, playful, a bit sarcastic, like a friendly Lagos friend. Write in plain, clear English only. No Pidgin and no slang spellings.
 Keep replies SHORT: 1-3 lines, WhatsApp style. No headings, no long lists.
 Messages arrive as "Name: text", so call people by name.
+Use emojis naturally, 1 or 2 per reply, matching the mood. Don't put one in every sentence.
 Answer coding and cybersecurity learning questions properly but simply.
 Academy golden rule: only hack what you own or have permission to test. If someone wants help attacking other people's accounts, phones or systems, joke it off and refuse.
 Never insult anyone's family, tribe, religion or looks."""
@@ -171,7 +172,6 @@ def ai_reply(client, event, chat, text):
         client.reply_message("😮‍💨 I'm a bit overloaded right now, ask me again in a minute.", event)
         return
 
-    sleep(min(len(answer) / 40, 3))             # short extra "typing" pause so it feels human
     hist.append({"role": "assistant", "content": answer})
     resp = client.reply_message(answer, event)
     set_typing(client, chat_jid, False)
