@@ -72,7 +72,7 @@ words = [
 games ={}
 
 # ============================================================
-# BLUEY AI MODE  (paste this whole block just ABOVE "#=== RANKS ====")
+# BLUEY AI MODE
 # ============================================================
 import time as _time
 from openai import OpenAI
@@ -81,8 +81,7 @@ from neonize.utils.enum import ChatPresence, ChatPresenceMedia
 AI_STATE_FILE = os.path.join(DATA_DIR, "ai_state.json")
 AI_MODEL = "gemini-3.1-flash-lite"
 AI_COOLDOWN = 3          # seconds between AI replies per user
-AI_HISTORY_LEN = 24      # CHANGED: messages remembered per chat (was 12)
-AI_MAX_TOKENS = 400      # NEW: hard ceiling on reply length
+AI_HISTORY_LEN = 24      # messages remembered per chat (group context + Bluey's replies)
 AI_MAX_IDS = 300         # how many bot message ids to remember
 
 ai_client = OpenAI(
@@ -90,17 +89,17 @@ ai_client = OpenAI(
     api_key=os.environ.get("GEMINI_API_KEY", ""),
 )
 
-BLUEY_PROMPT = """You are Bluey, the friendly bot of BlueyVerse Academy, a WhatsApp group of Nigerian students who are learning hacking and coding.
-Personality: conversational, warm and upbeat, like a smart friend who's genuinely into what the person is saying. Match their energy and tone: playful with jokes, calm and clear with questions, gentle when someone is stressed. React to what they said first ("Oh nice!", "Ah, that's annoying", "Okay, good question"), then give a clear, helpful answer. Explain things simply and with confidence, using small examples when it helps. Be encouraging, but stay honest: if someone is wrong, say so kindly instead of just agreeing. Now and then, end with a short follow-up question or offer ("Want me to break that down?") to keep the chat going, but not in every message. Write in plain, clear English, no Pidgin.
-You can talk about anything: life, music, football, school, jokes, random gist. Don't steer the conversation back to coding. Only talk about code or cybersecurity when someone brings it up.
-If someone wants to change the topic, just go with it.
+BLUEY_PROMPT = """You are Bluey, the bot of BlueyVerse Academy, a WhatsApp group of Nigerian students who are learning hacking and coding.
 
-Group context: you can see recent group messages that weren't addressed to you. Use them to understand what people are talking about, but only reply to the message you were addressed in.
+Personality: conversational, warm and upbeat, like a smart friend who is genuinely into what the person is saying. Match their energy and tone: playful with jokes, calm and clear with questions, gentle when someone is stressed. React to what they said first ("Oh nice!", "Ah, that's annoying", "Okay, good question"), then give a clear, helpful answer. Explain things simply and with confidence, using small examples when it helps. Be encouraging, but stay honest: if someone is wrong, say so kindly instead of just agreeing. Now and then, end with a short follow-up question or offer ("Want me to break that down?"), but not in every message. Write in plain, clear English, no Pidgin.
+
+Topics: you can talk about anything: life, music, football, school, jokes, random gist. Don't steer the conversation back to coding. Only talk about code or cybersecurity when someone brings it up. If someone wants to change the topic, just go with it.
 
 Roasting: only roast when someone asks you to. Keep it playful and clever, never mean. Make fun of harmless things like their choices, habits or a funny thing they said. Never roast anyone's family, tribe, religion, looks or anything painful. If the person seems hurt, stop and be kind.
 
-Style: keep most replies under 4 sentences, like a real WhatsApp message. Go longer only when the question genuinely needs it. No headings, no lists.
-Messages arrive as "Name: text", so use people's names sometimes, not every time.
+Length and style: keep simple chat concise, 1-3 lines like a real WhatsApp message. Give a fuller explanation only when the question really needs it, and even then keep it easy to read on a phone. No headings.
+
+Group context: the chat history contains messages from many group members, and most of them are not addressed to you. Use them as background so you understand what the group has been talking about, but only answer the person who replied to you. Don't respond to other people's messages. Messages arrive as "Name: text", so use people's names sometimes, not every time.
 
 Emojis: choose an emoji based on what the message is actually saying, not from a habit or a favorite set. Before you add one, ask what the message means or what feeling it carries, then pick the emoji that fits that exact thing: a joke gets a laugh, good news gets a celebration, a bug or a bad day gets something sympathetic, food gets a food emoji, football gets a football. Use 0 to 2 per reply, placed where they feel natural, usually at the end of a sentence. If the message is serious or you can't think of an emoji that truly fits, use none. Never reuse an emoji from your last few messages.
 
@@ -110,10 +109,7 @@ ai_on = set()        # chat ids where AI mode is on
 ai_ids = []          # ids of messages Bluey sent (so we know what counts as "a reply to Bluey")
 ai_history = {}      # chat -> recent messages
 ai_last_used = {}    # sender -> last time
-history_lock = threading.Lock()   # NEW: guards ai_history against concurrent threads
-
-# NEW: matches a message that starts by addressing Bluey, e.g. "Bluey, what's up?" or "bluey explain DNS"
-ADDRESS_PATTERN = re.compile(r"^\s*bluey(?:[,!?.:]|\s|$)", re.IGNORECASE)
+ai_locks = {}        # chat -> lock, so two replies don't mix up the history
 
 
 def load_ai_state():
@@ -152,6 +148,25 @@ def is_reply_to_bluey(event):
         return False
 
 
+def remember_group_message(event, text, chat):
+    """Quietly record normal group messages as context (only while AI mode is on)."""
+    if chat not in ai_on:
+        return
+    if event.Info.MessageSource.IsFromMe:
+        return
+    clean = text.strip()
+    if not clean or clean.lower() in ("bluey", "bluey off"):
+        return
+    if clean.startswith("!") or link_pattern.search(clean):
+        return
+    if chat in games:
+        return
+    name = getattr(event.Info, "Pushname", "") or "Someone"
+    hist = ai_history.setdefault(chat, [])
+    hist.append({"role": "user", "content": f"{name}: {clean}"})
+    del hist[:-AI_HISTORY_LEN]
+
+
 def set_typing(client, chat_jid, on):
     try:
         client.send_chat_presence(
@@ -163,50 +178,43 @@ def set_typing(client, chat_jid, on):
         print("typing error:", e)
 
 
-# NEW: records ordinary group messages as context while AI mode is on.
-# Only stores messages from people, not Bluey's own, commands, links, or game chats.
-def remember_group_message(event, text, chat):
-    if chat not in ai_on or chat in games:
-        return
-    if event.Info.MessageSource.IsFromMe:
-        return
-    clean = text.strip()
-    if not clean or clean.lower() in ("bluey", "bluey off"):
-        return
-    if clean.startswith("!") or link_pattern.search(clean):
-        return
-    name = getattr(event.Info, "Pushname", "") or "Someone"
-    with history_lock:
-        hist = ai_history.setdefault(chat, [])
-        hist.append({"role": "user", "content": f"{name}: {clean}"})
-        del hist[:-AI_HISTORY_LEN]
-
-
-# CHANGED: no longer appends the trigger message (remember_group_message already did),
-# takes a snapshot under the lock, and never pops history on error.
 def ai_reply(client, event, chat, text):
     chat_jid = event.Info.MessageSource.Chat
-
-    with history_lock:
-        snapshot = list(ai_history.get(chat, []))
+    name = getattr(event.Info, "Pushname", "") or "Someone"
+    hist = ai_history.setdefault(chat, [])
 
     set_typing(client, chat_jid, True)          # "typing..." shows up
-    try:
-        r = ai_client.chat.completions.create(
-            model=AI_MODEL,
-            temperature=1,
-            max_tokens=AI_MAX_TOKENS,
-            messages=[{"role": "system", "content": BLUEY_PROMPT}] + snapshot,
-        )
-        answer = (r.choices[0].message.content or "").strip() or "..."
-    except Exception as e:
-        print("AI error:", e)
-        set_typing(client, chat_jid, False)
-        client.reply_message("😮‍💨 I'm a bit overloaded right now, ask me again in a minute.", event)
-        return
 
-    with history_lock:
-        hist = ai_history.setdefault(chat, [])
+    with ai_locks.setdefault(chat, threading.Lock()):
+        # normally already recorded by remember_group_message; this only adds it if it was skipped
+        line = f"{name}: {text.strip()}"
+        if line not in [m["content"] for m in hist[-6:]]:
+            hist.append({"role": "user", "content": line})
+            del hist[:-AI_HISTORY_LEN]
+
+        answer = None
+        for attempt in range(2):
+            try:
+                r = ai_client.chat.completions.create(
+                    model=AI_MODEL,
+                    temperature=0.9,
+                    messages=[{"role": "system", "content": BLUEY_PROMPT}] + list(hist),
+                )
+                answer = (r.choices[0].message.content or "").strip() or "..."
+                break
+            except Exception as e:
+                code = getattr(e, "status_code", None)
+                print(f"AI error (attempt {attempt + 1}, status {code}):", e)
+                if code in (429, 500, 503) and attempt == 0:
+                    sleep(3)      # temporary problem, try once more
+                    continue
+                break
+
+        if answer is None:
+            set_typing(client, chat_jid, False)
+            client.reply_message("😮‍💨 I'm a bit overloaded right now, ask me again in a minute.", event)
+            return
+
         hist.append({"role": "assistant", "content": answer})
         del hist[:-AI_HISTORY_LEN]
 
@@ -222,8 +230,6 @@ def handle_ai(client, event, text, chat):
     # "bluey off" must be checked BEFORE "bluey"
     if re.fullmatch(r"bluey\s+off", t):
         ai_on.discard(chat)
-        with history_lock:
-            ai_history.pop(chat, None)      # CHANGED: clear stored group context on off
         save_ai_state()
         client.reply_message("😴 Bluey is now off. Say *bluey* to wake me up.", event)
         return True
@@ -231,21 +237,18 @@ def handle_ai(client, event, text, chat):
     if t == "bluey":
         ai_on.add(chat)
         save_ai_state()
-        # CHANGED: tells the group that messages are being read
         resp = client.reply_message(
-            "heyy, i'm active! I'll read the chat to follow along, Say *bluey off* to stop and clear what I've read.",
-            event)
+            "hey!, i'm active While I'm on, I read recent messages here for context. "
+            "Reply to my messages to talk to me. Say *bluey off* to stop.", event)
         remember_id(resp)
         return True
 
-    # normal messages: only react in AI mode, outside games
+    # normal messages: only react in AI mode, outside games, to replies to Bluey
     if chat not in ai_on or chat in games:
         return False
-    if not t or link_pattern.search(text):
-        return False          # links fall through to your anti-link code
-
-    # CHANGED: triggered by a reply to Bluey OR a message that starts with "Bluey"
-    if not (is_reply_to_bluey(event) or ADDRESS_PATTERN.match(text)):
+    if not t or t.startswith("!") or link_pattern.search(text):
+        return False          # commands and links fall through to your normal code
+    if not is_reply_to_bluey(event):
         return False
 
     sender = event.Info.MessageSource.Sender.User
@@ -958,7 +961,7 @@ def on_message(client, event):
             or event.Message.extendedTextMessage.text or "")
     print(repr(text))
     chat = event.Info.MessageSource.Chat.User
-    remember_group_message(event, text, chat)     # NEW: record context before AI check
+    remember_group_message(event, text, chat)
     if handle_ai(client, event, text, chat):
         return
     if chat in games and games[chat]["state"] == "playing":
