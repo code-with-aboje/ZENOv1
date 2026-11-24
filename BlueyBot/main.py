@@ -79,7 +79,7 @@ from openai import OpenAI
 from neonize.utils.enum import ChatPresence, ChatPresenceMedia
 
 AI_STATE_FILE = os.path.join(DATA_DIR, "ai_state.json")
-AI_MODEL = "gemini-3.1-flash-lite"
+AI_MODELS = ["gemini-3.1-flash-lite", "gemini-3.5-flash", "gemini-3.1-flash-lite"]  # tried in order if one is busy
 AI_COOLDOWN = 3          # seconds between AI replies per user
 AI_HISTORY_LEN = 24      # messages remembered per chat (group context + Bluey's replies)
 AI_MAX_IDS = 300         # how many bot message ids to remember
@@ -195,10 +195,10 @@ def ai_reply(client, event, chat, text):
             del hist[:-AI_HISTORY_LEN]
 
         answer = None
-        for attempt in range(2):
+        for model in AI_MODELS:
             try:
                 r = ai_client.chat.completions.create(
-                    model=AI_MODEL,
+                    model=model,
                     temperature=0.9,
                     messages=[{"role": "system", "content": BLUEY_PROMPT}] + list(hist),
                 )
@@ -206,9 +206,9 @@ def ai_reply(client, event, chat, text):
                 break
             except Exception as e:
                 code = getattr(e, "status_code", None)
-                print(f"AI error (attempt {attempt + 1}, status {code}):", e)
-                if code in (429, 500, 503) and attempt == 0:
-                    sleep(3)      # temporary problem, try once more
+                print(f"AI error (model {model}, status {code}):", e)
+                if code in (429, 500, 503) or code is None:
+                    sleep(2)      # busy or timed out: try the next model in the list
                     continue
                 break
 
@@ -240,7 +240,7 @@ def handle_ai(client, event, text, chat):
         ai_on.add(chat)
         save_ai_state()
         resp = client.reply_message(
-            "hey!, i'm active While I'm on, I read recent messages here for context. "
+            "hey! i'm active.  While I'm on, I read recent messages here for context. "
             "Reply to my messages to talk to me. Say *bluey off* to stop.", event)
         remember_id(resp)
         return True
