@@ -87,6 +87,8 @@ AI_MAX_IDS = 300         # how many bot message ids to remember
 ai_client = OpenAI(
     base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
     api_key=os.environ.get("GEMINI_API_KEY", ""),
+    timeout=20,
+    max_retries=0,
 )
 
 BLUEY_PROMPT = """You are Bluey, the bot of BlueyVerse Academy, a WhatsApp group of Nigerian students who are learning hacking and coding.
